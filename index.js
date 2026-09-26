@@ -118,7 +118,28 @@ async function sendAttendanceDM(user, payload, previousAttendance) {
   return { dmSent: true };
 }
 
-app.post('/attendance', async (req, res) => {
+async function processAttendanceDM(payload, previousAttendance) {
+  try {
+    const user = await findDiscordUserByName(payload.name);
+    if (!user) {
+      console.log(`No matching Discord user found for ${payload.name}.`);
+      return { dmSent: false, dmStatus: 'No matching Discord user found.' };
+    }
+
+    const result = await sendAttendanceDM(user, payload, previousAttendance);
+    return {
+      dmSent: result.dmSent,
+      dmStatus: result.dmSent ? 'DM sent successfully.' : result.reason || 'DM send failed.',
+    };
+  } catch (error) {
+    return {
+      dmSent: false,
+      dmStatus: `DM failed: ${error.message}`,
+    };
+  }
+}
+
+app.post('/attendance', (req, res) => {
   const validation = isValidPayload(req.body);
   if (!validation.valid) {
     return res.status(400).json({ accepted: false, error: validation.message });
@@ -137,31 +158,27 @@ app.post('/attendance', async (req, res) => {
 
   recentAttendance.set(key, payload.attendance);
 
-  let dmSent = false;
-  let dmStatus = 'No DM sent because no matching Discord user was found.';
-
-  try {
-    const user = await findDiscordUserByName(payload.name);
-    if (user) {
-      const result = await sendAttendanceDM(user, payload, previousAttendance);
-      dmSent = result.dmSent;
-      dmStatus = result.dmSent ? 'DM sent successfully.' : result.reason || 'DM send failed.';
-    }
-  } catch (error) {
-    dmStatus = `DM failed: ${error.message}`;
-  }
-
-  return res.status(202).json({
+  res.status(202).json({
     accepted: true,
     status: 'accepted',
     date: payload.date,
     name: payload.name,
     attendance: payload.attendance,
     changeDetected,
-    dmSent,
-    message: 'Attendance payload accepted.',
-    dmStatus,
+    dmSent: false,
+    message: 'Attendance payload accepted. Discord DM processing has started in the background.',
+    dmStatus: 'Queued for processing.',
   });
+
+  void processAttendanceDM(payload, previousAttendance)
+    .then((result) => {
+      console.log(`Attendance DM result for ${payload.name}: ${result.dmStatus}`);
+    })
+    .catch((error) => {
+      console.error('Attendance DM processing failed:', error);
+    });
+
+  return undefined;
 });
 
 app.get('/health', (_req, res) => {
