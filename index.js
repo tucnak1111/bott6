@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { PORT, DISCORD_TOKEN, DISCORD_GUILD_ID } = require('./src/config');
 
 const app = express();
@@ -104,17 +104,37 @@ async function sendAttendanceDM(user, payload, previousAttendance) {
     return { dmSent: false, reason: 'No matching Discord user found.' };
   }
 
-  const message = [
-    `Attendance update for ${payload.date}`,
-    `Name: ${payload.name}`,
-    `Attendance: ${payload.attendance}`,
-    previousAttendance ? `Previous attendance: ${previousAttendance}` : 'Previous attendance: none',
-    payload.additionalNotes ? `Additional notes: ${payload.additionalNotes}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const colorMap = {
+    Present: 0x22c55e,
+    'Absent - excused': 0xf59e0b,
+    'Absent - unauthorized': 0xef4444,
+    'Not Applicable': 0x64748b,
+  };
 
-  await user.send(message);
+  const embed = new EmbedBuilder()
+    .setColor(colorMap[payload.attendance] || 0x5865f2)
+    .setTitle('Attendance recorded')
+    .setDescription(`Your attendance for ${payload.date} meeting has been recorded as ${payload.attendance}.`)
+    .addFields(
+      { name: 'Status', value: payload.attendance, inline: true },
+      { name: 'Date', value: payload.date, inline: true }
+    )
+    .setTimestamp(new Date());
+
+  if (payload.additionalNotes) {
+    embed.addFields({ name: 'Notes', value: payload.additionalNotes });
+  }
+
+  if (previousAttendance) {
+    embed.setFooter({ text: `Previous attendance: ${previousAttendance}` });
+  }
+
+  await user.send({
+    content: `<@${user.id}>`,
+    embeds: [embed],
+    allowedMentions: { parse: ['users'] },
+  });
+
   return { dmSent: true };
 }
 
